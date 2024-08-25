@@ -1,0 +1,101 @@
+name: Deploy to Yandex Cloud
+
+on:
+  push:
+    branches:
+      - master
+
+env:
+  SERVER_USER: acherenkov         # Имя пользователя на сервере
+  SERVER_IP: 51.250.41.243        # IP-адрес вашего сервера
+  PROJECT_DIR: /home/acherenkov/ace-viewer  # Путь к проекту на сервере
+  VENV_DIR: /home/acherenkov/ace-viewer/.venv  # Путь к виртуальному окружению
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Шаг 1: Клонирование репозитория
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Шаг 2: Запуск SSH агента и добавление ключа
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Шаг 3: Добавление хоста в known_hosts
+      - name: Add server to known_hosts
+        run: |
+          ssh-keyscan ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      # Шаг 4: Подключение к серверу и пулл изменений из репозитория
+      - name: Pull latest changes on server
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
+            cd ${{ env.PROJECT_DIR }}
+            git pull origin master
+          EOF
+
+      # Шаг 5: Копирование конфигурационных файлов
+      - name: Copy configuration files
+        run: |
+          scp ./config/nginx.conf ${{ env.SERVER_USER }}@${{ env.SERVER_IP }}:/home/acherenkov/nginx.conf
+          scp ./config/gunicorn.service ${{ env.SERVER_USER }}@${{ env.SERVER_IP }}:/home/acherenkov/gunicorn.service
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
+            sudo mv /home/acherenkov/nginx.conf /etc/nginx/sites-available/ace-viewer
+            sudo mv /home/acherenkov/gunicorn.service /etc/systemd/system/gunicorn.service
+            sudo systemctl daemon-reload  # Для обновления systemd после изменения конфигурации
+          EOF
+      # Шаг 6: Создание .env файла на сервере
+      - name: Create .env file
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
+            echo "DEBUG=False" > ${{ env.PROJECT_DIR }}/.env
+            echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> ${{ env.PROJECT_DIR }}/.env
+            echo "DATABASE_NAME=${{ secrets.DATABASE_NAME }}" >> ${{ env.PROJECT_DIR }}/.env
+            echo "DATABASE_USER=${{ secrets.DATABASE_USER }}" >> ${{ env.PROJECT_DIR }}/.env
+            echo "DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }}" >> ${{ env.PROJECT_DIR }}/.env
+            echo "DATABASE_HOST=localhost" >> ${{ env.PROJECT_DIR }}/.env
+            echo "DATABASE_PORT=5432" >> ${{ env.PROJECT_DIR }}/.env
+            echo "ALLOWED_HOSTS=ace-dev.ru,www.ace-dev.ru,api.ace-dev.ru" >> ${{ env.PROJECT_DIR }}/.env
+            echo "STATIC_ROOT=${{ env.PROJECT_DIR }}/staticfiles" >> ${{ env.PROJECT_DIR }}/.env
+          EOF
+
+      # Шаг 7: Активация виртуального окружения и установка зависимостей
+      - name: Install dependencies
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
+            cd ${{ env.PROJECT_DIR }}
+            python3 -m venv .venv
+            source ${{ env.VENV_DIR }}/bin/activate
+            pip install -r requirements.txt
+          EOF
+
+      # Шаг 8: Применение миграций базы данных
+      - name: Apply database migrations
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
+            cd ${{ env.PROJECT_DIR }}
+            source ${{ env.VENV_DIR }}/bin/activate
+            python manage.py migrate
+          EOF
+
+      # Шаг 9: Сбор статических файлов
+      - name: Collect static files
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
+            cd ${{ env.PROJECT_DIR }}
+            source ${{ env.VENV_DIR }}/bin/activate
+            python manage.py collectstatic --noinput
+          EOF
+
+      # Шаг 10: Перезапуск сервисов Gunicorn и Nginx
+      - name: Restart services (Gunicorn/Nginx)
+        run: |
+          ssh ${{ env.SERVER_USER }}@${{ env.SERVER_IP }} << 'EOF'
+            sudo systemctl restart gunicorn
+            sudo systemctl restart nginx
+          EOF
