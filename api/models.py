@@ -27,3 +27,13 @@ class Task(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class File(models.Model):
+    filename = models.CharField(max_length=255)
+    date_created = models.DateTimeField()
+    date_updated = models.DateTimeField()
+    size = models.IntegerField()
+
+    def __str__(self):
+        return self.filename
