@@ -9,7 +9,7 @@ def camel_to_snake(name):
 
 class QueryParameterCamelToSnakeMiddleware(MiddlewareMixin):
     def process_request(self, request):
-        print("Middleware triggered")
+        print("QueryParameterCamelToSnakeMiddleware triggered")
         query_dict = request.GET.copy()
         new_query_dict = {}
 
@@ -17,16 +17,13 @@ class QueryParameterCamelToSnakeMiddleware(MiddlewareMixin):
             snake_key = camel_to_snake(key)
             values = query_dict.getlist(key)
 
-            # Convert each value from camelCase to snake_case
-            new_values = [camel_to_snake(value) if isinstance(value, str) else value for value in values]
-
             # If there is only one value, set it as a string, not a list
-            if len(new_values) == 1:
-                new_query_dict[snake_key] = new_values[0]
+            if len(values) == 1:
+                new_query_dict[snake_key] = values[0]
             else:
-                new_query_dict[snake_key] = new_values
+                new_query_dict[snake_key] = values
 
-            print(f"Converting {key} to {snake_key}, values: {values} to {new_values}")
+            print(f"Converting {key} to {snake_key}")
 
         # Обновляем request.GET с преобразованными ключами и значениями
         request.GET = new_query_dict

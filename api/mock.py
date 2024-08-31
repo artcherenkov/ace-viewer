@@ -24,7 +24,7 @@ def generate_mock_data(num_records=20):
     files = []
 
     start_date = make_aware(datetime.now() - timedelta(days=365 * 2))
-    end_date = make_aware(datetime.now() + timedelta(days=365 * 2))
+    end_date = make_aware(datetime.now())
 
     for i in range(num_records):
         filename = random.choice(filenames)
@@ -39,7 +39,7 @@ def generate_mock_data(num_records=20):
             filename=filename,
             date_created=date_created,
             date_updated=date_updated,
-            size=size
+            size=size * 1024
         )
         files.append(file)
 
